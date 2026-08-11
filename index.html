@@ -742,10 +742,11 @@ async function runDiagnostic(){
 
 /* ================= ALARMĂ SONORĂ LA COMANDĂ NOUĂ =================
    Sunetul e generat în browser (Web Audio), fără fișiere externe.
-   Sună tare și repetat până când atingi ecranul sau trec ~20 de secunde. */
+   Se deblochează singur când intri în panou (autentificarea e deja o atingere),
+   apoi sună singur la fiecare comandă nouă, ~20 de secunde. */
 const SOUND_KEY = 'kingbistro_sound';
 const Alarm = {
-  ctx: null, timer: null, left: 0, nodes: [], warned: false,
+  ctx: null, timer: null, left: 0, nodes: [], warned: false, alive: null,
   get on(){ try{ return localStorage.getItem(SOUND_KEY) !== 'off'; }catch(e){ return true; } },
   set on(v){ try{ localStorage.setItem(SOUND_KEY, v ? 'on' : 'off'); }catch(e){} },
   audio(){
@@ -757,11 +758,26 @@ const Alarm = {
       return this.ctx;
     }catch(e){ return null; }
   },
-  /* Browserele pornesc sunetul doar după o atingere/apăsare de tastă */
+  /* Pornește motorul de sunet. Se apelează singur la intrarea în panou și la
+     orice atingere/tastă/derulare, ca sunetul să fie gata înainte de comandă. */
   unlock(){
     const c = this.audio(); if(!c) return;
     try{ const s = c.createBufferSource(); s.buffer = c.createBuffer(1, 1, 22050); s.connect(c.destination); s.start(0); }catch(e){}
+    this.keepAlive();
   },
+  /* Ține motorul de sunet pornit (altfel telefoanele îl adorm după un minut) */
+  keepAlive(){
+    const c = this.ctx; if(!c || this.alive) return;
+    try{
+      const s = c.createBufferSource();
+      s.buffer = c.createBuffer(1, c.sampleRate, c.sampleRate); /* o secundă de liniște, în buclă */
+      s.loop = true;
+      const g = c.createGain(); g.gain.value = .0001;
+      s.connect(g); g.connect(c.destination); s.start(0);
+      this.alive = s;
+    }catch(e){}
+  },
+  get ready(){ return !!this.ctx && this.ctx.state === 'running'; },
   /* O serie de bipuri ascuțite (frecvențe la care urechea aude cel mai bine) */
   burst(freqs, vol){
     const c = this.audio(); if(!c) return false;
@@ -796,9 +812,10 @@ const Alarm = {
     this.left = 8;
     const tick = () => {
       if(this.left-- <= 0){ this.stop(); return; }
+      this.unlock();
       this.burst([1047, 1568, 1047, 1568, 2093], 1);
       try{ if(navigator.vibrate) navigator.vibrate([350, 130, 350, 130, 600]); }catch(e){}
-      setTimeout(() => { if(!this.ctx || this.ctx.state !== 'running') this.needTap(); }, 400);
+      setTimeout(() => { if(!this.ready) this.needTap(); }, 500);
     };
     tick();
     this.timer = setInterval(tick, 2400);
@@ -810,13 +827,35 @@ const Alarm = {
     this.nodes.forEach(o => { try{ o.stop(0); }catch(e){} });
     this.nodes = [];
   },
-  needTap(){ if(this.warned) return; this.warned = true; toast('🔔 Atinge o dată ecranul ca să pornească sunetul'); }
+  needTap(){ if(this.warned) return; this.warned = true; toast('🔔 Atinge ecranul o dată — browserul cere asta ca să pot suna'); }
 };
-/* Prima atingere deblochează sunetul; următoarele opresc alarma care sună */
-['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => {
-  if(!Alarm.ctx || Alarm.ctx.state !== 'running') Alarm.unlock();
-  else if(Alarm.timer) Alarm.stop();
-}, { passive: true }));
+
+/* Anunț de sistem (bannerul + sunetul telefonului/calculatorului), ca să te
+   alerteze și când fila e în fundal sau ecranul e blocat. */
+let notifyAsked = false;
+function askNotify(){
+  if(notifyAsked) return; notifyAsked = true;
+  try{ if('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); }catch(e){}
+}
+function systemNotify(n){
+  try{
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    const t = n > 1 ? `${n} comenzi noi` : 'Comandă nouă';
+    const nf = new Notification('🔔 KingBistro — ' + t, {
+      body: 'Intră în panou ca să o confirmi.', tag: 'kb-order', renotify: true, requireInteraction: true
+    });
+    nf.onclick = () => { try{ window.focus(); }catch(e){} nf.close(); };
+  }catch(e){}
+}
+
+/* Sunetul se deblochează singur la orice interacțiune cu pagina (inclusiv la
+   autentificarea în panou); dacă alarma sună deja, o atingere o oprește. */
+['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'].forEach(ev =>
+  window.addEventListener(ev, () => {
+    if(!Alarm.ready) Alarm.unlock();
+    else if(Alarm.timer) Alarm.stop();
+  }, { passive: true, capture: true }));
+document.addEventListener('visibilitychange', () => { if(!document.hidden && !Alarm.ready) Alarm.unlock(); });
 
 /* Comenzi din cloud (admin) */
 const getOrders = () => SB.on ? (cloudOrders || []) : DB.orders;
@@ -854,6 +893,7 @@ function announceOrders(n){
   if(n <= 0) return;
   toast(n > 1 ? `🔔 ${n} comenzi noi primite!` : '🔔 Comandă nouă primită!');
   Alarm.ring();
+  systemNotify(n);
 }
 function startOrdPoll(){
   if(!SB.on) return;
@@ -868,7 +908,7 @@ function startOrdPoll(){
       ordSig = sig;
       if(adminTab === 'orders') renderAdmin(); else updateTitle();
     }
-  }, 15000);
+  }, 5000);   /* verifică la 5 secunde — comanda se aude aproape instant */
 }
 function stopOrdPoll(){ if(ordPoll){ clearInterval(ordPoll); ordPoll = null; } }
 
@@ -1294,7 +1334,12 @@ function renderAdmin(){
     $('#eyeBtn').onclick = () => { const i = $('#adminPass'); i.type = i.type === 'password' ? 'text' : 'password'; i.focus(); };
     $('#loginForm').onsubmit = e => {
       e.preventDefault();
-      if($('#adminPass').value === ADMIN_PASS){ setAuthed(true); renderAdmin(); }
+      if($('#adminPass').value === ADMIN_PASS){
+        /* apăsarea asta e „atingerea" de care are nevoie browserul: de aici
+           încolo sunetul de comandă nouă merge singur */
+        Alarm.unlock(); askNotify();
+        setAuthed(true); renderAdmin();
+      }
       else{ const er = $('#loginErr'); er.classList.remove('show'); void er.offsetWidth; er.classList.add('show'); }
     };
     return;
@@ -1332,7 +1377,8 @@ function renderAdmin(){
     if(SB.on && cloudOrders === null) loadCloudOrders().then(() => { if(adminTab === 'orders' && !$('#adminView').classList.contains('hidden')) renderOrdersTab(); });
   }
   else { if(adminTab === 'menu') renderMenuTab(); else renderSettingsTab(); }
-  startOrdPoll(); /* sunetul de comandă nouă merge din orice filă a panoului */
+  Alarm.unlock(); askNotify();  /* pregătește sunetul înainte să vină comanda */
+  startOrdPoll();               /* alarma merge din orice filă a panoului */
   updateTitle();
 }
 

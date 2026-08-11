@@ -21,7 +21,7 @@ Site complet într-un singur fișier: **`index.html`**. Nu are nevoie de server,
 - Intrare: link-ul **„Administrare"** din josul paginii (sau adaugă `#admin` la adresă).
 - **Parola: `kingbistro2026`** (o schimbi în `index.html`, caută `ADMIN_PASS`).
 - **Comenzi:** apar instant, cu statusuri (Nouă → În pregătire → Ridicată / Anulată), telefonul clientului cu apel direct, totaluri pe ziua curentă.
-- **Sunet la comandă nouă:** cât timp panoul de administrare e deschis (pe orice filă), la fiecare comandă nouă se aude o alarmă puternică, repetată ~20 de secunde, până când atingi ecranul. Se pornește/oprește din butonul 🔔 din bara de sus a panoului. La prima deschidere a panoului, atinge o dată ecranul — browserele pornesc sunetul doar după o atingere.
+- **Sunet la comandă nouă:** ține panoul de administrare deschis și atât — la fiecare comandă nouă se aude singur, în ~5 secunde, un semnal puternic repetat ~20 de secunde (se oprește dacă atingi ecranul). Merge din orice filă a panoului, telefonul vibrează în același timp, iar dacă permiți notificările primești și anunțul de sistem când fila e în fundal. Se oprește/pornește din butonul 🔔 din bara de sus.
 - **Meniu:** adaugi/editezi/ștergi produse — nume, categorie, preț, descriere, **ingrediente cu gramaje**, etichete (⭐ Cel mai vândut / 🔥 Nou / % Promoție), variantă picantă, disponibil/indisponibil și **poză** (se optimizează automat la max. 900px).
 - **Setări:** adresă, telefon, program, timp de pregătire, banner promoțional, comutator **Deschis/Închis**, politici (Termeni + Confidențialitate), export/import date (JSON), resetare meniu.
 
